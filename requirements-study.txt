@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Optional study/demo dependencies mirrored from pyproject.toml.
+langchain-classic>=0.2.0
+chromadb>=0.5.5
+bilibili-api-python>=17.0.0

@@ -35,6 +35,22 @@ python backend/app.py
 uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+如果你不想使用 `uv`，也可以直接使用 `requirements.txt`：
+
+```bash
+# 方式 C：conda / pip + requirements.txt
+conda create -n agentrag312 python=3.12 -y
+conda activate agentrag312
+pip install -U pip
+pip install -r requirements.txt
+
+# 如果需要 langchain-study/ 目录里的额外实验依赖：
+pip install -r requirements-study.txt
+
+# 运行服务
+python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
 ### 3) 创建 `.env` 文件
 在项目根目录新建 `.env`，可直接使用下面模板：
 
@@ -485,5 +501,4 @@ StreamingResponse(
   2. **Backend (`tools.py`)**：更新 `emit_rag_step` 使用捕获的 `_RAG_STEP_LOOP.call_soon_threadsafe` 跨线程调度事件。
   3. **Frontend (`script.js`)**：在发送消息时初始化空的 `ragSteps: []` 数组，确保 Vue 响应式系统能立即追踪后续的 push 操作。
 - **效果**：用户提问后，思考气泡内实时跳动显示检索步骤（如"🔍 正在检索知识库..." -> "📊 正在评估文档相关性..."），不再只有静态的"正在思考中..."。
-
 

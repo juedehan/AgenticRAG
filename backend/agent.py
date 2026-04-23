@@ -4,7 +4,7 @@ import json
 import asyncio
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from tools import get_current_weather, search_knowledge_base, get_last_rag_context, reset_tool_call_guards, set_rag_step_queue
 from datetime import datetime
 from cache import cache
@@ -16,6 +16,20 @@ load_dotenv()
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
+
+
+def _debug_preview(value, limit: int = 200) -> str:
+    text = repr(value)
+    if len(text) > limit:
+        return text[:limit] + "...(truncated)"
+    return text
+
+
+def _debug_log(event: str, **kwargs) -> None:
+    parts = [f"[agent-debug] {event}"]
+    for key, value in kwargs.items():
+        parts.append(f"{key}={value}")
+    print(" | ".join(parts), flush=True)
 
 class ConversationStorage:
     """对话存储（PostgreSQL + Redis）。"""
@@ -314,6 +328,15 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     而非等待工具完成后才显示。
     """
     messages = storage.load(user_id, session_id)
+    _debug_log(
+        "stream_start",
+        user_id=user_id,
+        session_id=session_id,
+        history_count=len(messages),
+        user_text=_debug_preview(user_text),
+        model=MODEL,
+        base_url=BASE_URL,
+    )
 
     # 清理可能残留的 RAG 上下文
     get_last_rag_context(clear=True)
@@ -343,14 +366,30 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         """后台任务：运行 agent 并将内容 chunk 推入输出队列。"""
         nonlocal full_response
         try:
+            _debug_log("agent_worker_start", message_count=len(messages))
             async for msg, metadata in agent.astream(
                 {"messages": messages},
                 stream_mode="messages",
                 config={"recursion_limit": 8},
             ):
-                if not isinstance(msg, AIMessageChunk):
+                metadata_keys = sorted(list(metadata.keys())) if isinstance(metadata, dict) else []
+                _debug_log(
+                    "astream_event",
+                    msg_type=type(msg).__name__,
+                    is_ai_message=isinstance(msg, AIMessage),
+                    content_type=type(getattr(msg, "content", None)).__name__,
+                    metadata_keys=metadata_keys,
+                    msg_preview=_debug_preview(msg),
+                    content_preview=_debug_preview(getattr(msg, "content", None)),
+                )
+                if not isinstance(msg, AIMessage):
+                    _debug_log("skip_non_ai_message", msg_type=type(msg).__name__)
                     continue
                 if getattr(msg, "tool_call_chunks", None):
+                    _debug_log(
+                        "skip_tool_call_chunk",
+                        tool_call_chunks=_debug_preview(getattr(msg, "tool_call_chunks", None)),
+                    )
                     continue
 
                 content = ""
@@ -364,12 +403,21 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
                             content += block.get("text", "")
 
                 if content:
+                    _debug_log(
+                        "emit_content",
+                        chunk_length=len(content),
+                        chunk_preview=_debug_preview(content),
+                    )
                     full_response += content
                     await output_queue.put({"type": "content", "content": content})
+                else:
+                    _debug_log("empty_content_after_parse", msg_type=type(msg).__name__)
         except Exception as e:
+            _debug_log("agent_worker_error", error=_debug_preview(e))
             await output_queue.put({"type": "error", "content": str(e)})
         finally:
             # 哨兵：通知主循环 agent 已完成
+            _debug_log("agent_worker_end", full_response_length=len(full_response))
             await output_queue.put(None)
 
     # 启动后台任务
@@ -381,7 +429,9 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         while True:
             event = await output_queue.get()
             if event is None:
+                _debug_log("stream_queue_end")
                 break
+            _debug_log("stream_yield_event", event_type=event.get("type"), event_preview=_debug_preview(event))
             yield f"data: {json.dumps(event)}\n\n"
     except GeneratorExit:
         # 客户端断开连接（AbortController）时，FastAPI 会向此生成器抛出 GeneratorExit
@@ -404,12 +454,15 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
     # 发送 trace 信息
     if rag_trace:
+        _debug_log("stream_trace", rag_trace_keys=sorted(list(rag_trace.keys())))
         yield f"data: {json.dumps({'type': 'trace', 'rag_trace': rag_trace})}\n\n"
 
     # 发送结束信号
+    _debug_log("stream_done", full_response_length=len(full_response))
     yield "data: [DONE]\n\n"
 
     # 保存对话
     messages.append(AIMessage(content=full_response))
     extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
     storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
+    _debug_log("stream_saved", saved_message_count=len(messages))

@@ -43,6 +43,7 @@ class ParentChunkStore:
                     continue
 
                 record = db.query(ParentChunk).filter(ParentChunk.chunk_id == chunk_id).first()
+                # 组装要写入的数据
                 payload = {
                     "text": doc.get("text", ""),
                     "filename": doc.get("filename", ""),
@@ -55,6 +56,7 @@ class ParentChunkStore:
                     "chunk_idx": int(doc.get("chunk_idx", 0) or 0),
                     "updated_at": datetime.utcnow(),
                 }
+                # 用于redis
                 cache_payload = {
                     "chunk_id": chunk_id,
                     "text": payload["text"],

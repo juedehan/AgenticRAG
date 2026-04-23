@@ -65,6 +65,7 @@ class DocumentLoader:
             level_1_id = self._build_chunk_id(filename, page_number, 1, level_1_counter)
             level_1_counter += 1
 
+            # 构造l1chunk的完整信息
             level_1_chunk = {
                 **base_doc,
                 "text": level_1_text,

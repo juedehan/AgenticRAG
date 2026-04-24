@@ -127,13 +127,13 @@ def get_current_weather(location: str, extensions: Optional[str] = "base") -> st
 
 @tool("search_knowledge_base")
 def search_knowledge_base(query: str) -> str:
-    """Search for information in the knowledge base using hybrid retrieval (dense + sparse vectors)."""
+    """使用混合检索（稠密向量 + 稀疏向量）在知识库中搜索相关信息。"""
     # ... guards omitted ...
     global _KNOWLEDGE_TOOL_CALLS_THIS_TURN
     if _KNOWLEDGE_TOOL_CALLS_THIS_TURN >= 1:
         return (
-            "TOOL_CALL_LIMIT_REACHED: search_knowledge_base has already been called once in this turn. "
-            "Use the existing retrieval result and provide the final answer directly."
+            "工具调用次数已达上限：本轮对话中 search_knowledge_base 已经调用过一次。"
+            "请直接基于已有的检索结果给出最终回答。"
         )
     _KNOWLEDGE_TOOL_CALLS_THIS_TURN += 1
 
